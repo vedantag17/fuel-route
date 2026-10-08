@@ -6,7 +6,7 @@ A Django REST API that takes a start and finish location in the USA and returns:
 - where to buy fuel along the way, and how much, chosen for low cost from the supplied fuel-price CSV,
 - the total fuel cost for a vehicle with a 500-mile range and 10 mpg.
 
-A typical request makes **one external API call**: the OSRM route. City names and coordinates are resolved from a bundled Census file, and repeated requests are cached.
+A typical uncached backend route request makes **one external API call**: the OSRM route. City names and coordinates are resolved from a bundled Census file, and repeated requests are cached. The browser demo separately loads its basemap from OpenFreeMap.
 
 ## Quick start
 
@@ -66,7 +66,7 @@ Locations can be `"City, ST"` (or a full state name), a street address, or `"lat
 }
 ```
 
-`route` is a GeoJSON Feature that you can paste into <https://geojson.io>, or open `map_url` for a Leaflet map with the route, stops and a stop table.
+`route` is a GeoJSON Feature that you can paste into <https://geojson.io>, or open `map_url` for an interactive map with the route, stops and a stop table.
 
 ## How it works
 
@@ -104,4 +104,4 @@ python manage.py build_places_index 2025_Gaz_place_national.txt 2025_Gaz_cousubs
 
 ## Configuration
 
-Environment variables (see `.env.example`): `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`, and `OSRM_BASE_URL`, which defaults to the public demo server (best-effort, so keep request volume modest). The map uses OpenStreetMap tiles with attribution.
+Environment variables (see `.env.example`): `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`, and `OSRM_BASE_URL`, which defaults to the public demo server (best-effort, so keep request volume modest). The browser demo uses OpenFreeMap's public basemap, with its OpenFreeMap, OpenMapTiles, and OpenStreetMap attribution shown on the map. The basemap provider is separate from OSRM, which supplies driving routes.

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fuel Route Planner</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.9.1/dist/maplibre-gl.css">
   <style>
     body { font: 16px system-ui, sans-serif; margin: 0; color: #19222b; }
     main { max-width: 1100px; margin: 24px auto; padding: 0 18px; }
@@ -41,14 +41,18 @@
     </table>
   </div>
 </main>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-  const map = L.map('map').setView([39.5, -98.35], 4);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
-  }).addTo(map);
-  const overlay = L.layerGroup().addTo(map);
+<script type="module">
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.9.1/dist/maplibre-gl.mjs';
+
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://tiles.openfreemap.org/styles/positron',
+    center: [-98.35, 39.5],
+    zoom: 4
+  });
+  map.addControl(new maplibregl.NavigationControl(), 'top-left');
+  const mapReady = new Promise((resolve) => map.once('load', resolve));
+  const markers = [];
   const summary = document.getElementById('summary');
   const table = document.getElementById('stops');
   const startInput = document.getElementById('start');
@@ -56,9 +60,24 @@
   const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   const money = (value) => `$${Number(value).toFixed(2)}`;
 
+  function clearMapOverlays() {
+    markers.splice(0).forEach((marker) => marker.remove());
+    if (!map.isStyleLoaded()) return;
+    if (map.getLayer('route-line')) map.removeLayer('route-line');
+    if (map.getSource('route')) map.removeSource('route');
+  }
+
+  function addMarker(coordinates, color, popup) {
+    const marker = new maplibregl.Marker({color})
+      .setLngLat(coordinates)
+      .setPopup(popup)
+      .addTo(map);
+    markers.push(marker);
+  }
+
   async function planRoute() {
     summary.textContent = 'Calculating…';
-    overlay.clearLayers();
+    clearMapOverlays();
     table.hidden = true;
     try {
       const response = await fetch('/api/v1/route-plan/', {
@@ -69,13 +88,30 @@
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || data.error || JSON.stringify(data.errors));
 
-      const routeLayer = L.geoJSON(data.route, {style: {color: '#1458a6', weight: 5}}).addTo(overlay);
-      map.fitBounds(routeLayer.getBounds(), {padding: [20, 20]});
+      await mapReady;
+      map.addSource('route', {type: 'geojson', data: data.route});
+      map.addLayer({
+        id: 'route-line',
+        type: 'line',
+        source: 'route',
+        layout: {'line-join': 'round', 'line-cap': 'round'},
+        paint: {'line-color': '#1458a6', 'line-width': 5}
+      });
+      const coordinates = data.route.geometry.coordinates;
+      const bounds = coordinates.reduce(
+        (current, coordinate) => current.extend(coordinate),
+        new maplibregl.LngLatBounds(coordinates[0], coordinates[0])
+      );
+      map.fitBounds(bounds, {padding: 20});
       const {start, finish} = data.route.properties;
-      L.circleMarker([start.latitude, start.longitude], {radius: 7, color: '#137333'})
-        .bindPopup(`Start: ${escapeHtml(start.matched_address)}`).addTo(overlay);
-      L.circleMarker([finish.latitude, finish.longitude], {radius: 7, color: '#b3261e'})
-        .bindPopup(`Finish: ${escapeHtml(finish.matched_address)}`).addTo(overlay);
+      addMarker(
+        [start.longitude, start.latitude], '#137333',
+        new maplibregl.Popup({offset: 25}).setText(`Start: ${start.matched_address}`)
+      );
+      addMarker(
+        [finish.longitude, finish.latitude], '#b3261e',
+        new maplibregl.Popup({offset: 25}).setText(`Finish: ${finish.matched_address}`)
+      );
 
       const s = data.summary;
       const head = `${s.distance_miles} miles · ${s.duration_hours} h driving`;
@@ -84,10 +120,13 @@
         return;
       }
       const rows = data.fuel_stops.map((stop) => {
-        L.marker([stop.latitude, stop.longitude]).bindPopup(
-          `${stop.stop_number}. ${escapeHtml(stop.name)}<br>${escapeHtml(stop.city)}, ${escapeHtml(stop.state)}<br>` +
-          `$${stop.price_per_gallon_usd}/gal · ${stop.gallons_purchased} gal · ${money(stop.cost_usd)}`
-        ).addTo(overlay);
+        addMarker(
+          [stop.longitude, stop.latitude], '#d97706',
+          new maplibregl.Popup({offset: 25}).setHTML(
+            `${stop.stop_number}. ${escapeHtml(stop.name)}<br>${escapeHtml(stop.city)}, ${escapeHtml(stop.state)}<br>` +
+            `$${stop.price_per_gallon_usd}/gal · ${stop.gallons_purchased} gal · ${money(stop.cost_usd)}`
+          )
+        );
         return `<tr><td>${stop.stop_number}</td><td>${escapeHtml(stop.name)}</td>` +
           `<td>${escapeHtml(stop.city)}, ${escapeHtml(stop.state)}</td><td class="num">${stop.route_mile}</td>` +
           `<td class="num">${stop.price_per_gallon_usd.toFixed(3)}</td><td class="num">${stop.gallons_purchased}</td>` +
