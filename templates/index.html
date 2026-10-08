@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fuel Route Planner</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 0; color: #19222b; }
+    main { max-width: 1100px; margin: 24px auto; padding: 0 18px; }
+    form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; }
+    label { display: grid; gap: 6px; font-size: 14px; }
+    input, button { box-sizing: border-box; padding: 10px; font: inherit; }
+    button { background: #1458a6; color: white; border: 0; border-radius: 4px; cursor: pointer; }
+    #map { height: 520px; margin-top: 18px; border: 1px solid #ccd3da; }
+    #summary { white-space: pre-wrap; padding: 12px 0; }
+    .table-wrap { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0 32px; font-size: 14px; }
+    th, td { border-bottom: 1px solid #e1e6eb; padding: 6px 8px; text-align: left; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    @media (max-width: 700px) { form { grid-template-columns: 1fr; } #map { height: 420px; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Fuel Route Planner</h1>
+  <form id="route-form">
+    <label>Start (address, "City, ST" or "lat,lon")<input id="start" required value="New York, NY"></label>
+    <label>Finish (address, "City, ST" or "lat,lon")<input id="finish" required value="Los Angeles, CA"></label>
+    <button type="submit">Plan route</button>
+  </form>
+  <div id="summary">Submit the form to calculate a route.</div>
+  <div id="map" aria-label="Route map"></div>
+  <div class="table-wrap">
+    <table id="stops" hidden>
+      <thead><tr>
+        <th>#</th><th>Station</th><th>City</th><th class="num">Route mile</th>
+        <th class="num">$/gal</th><th class="num">Gallons</th><th class="num">Cost</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const map = L.map('map').setView([39.5, -98.35], 4);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+  }).addTo(map);
+  const overlay = L.layerGroup().addTo(map);
+  const summary = document.getElementById('summary');
+  const table = document.getElementById('stops');
+  const startInput = document.getElementById('start');
+  const finishInput = document.getElementById('finish');
+  const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  const money = (value) => `$${Number(value).toFixed(2)}`;
+
+  async function planRoute() {
+    summary.textContent = 'Calculating…';
+    overlay.clearLayers();
+    table.hidden = true;
+    try {
+      const response = await fetch('/api/v1/route-plan/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: JSON.stringify({start_address: startInput.value, finish_address: finishInput.value})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || data.error || JSON.stringify(data.errors));
+
+      const routeLayer = L.geoJSON(data.route, {style: {color: '#1458a6', weight: 5}}).addTo(overlay);
+      map.fitBounds(routeLayer.getBounds(), {padding: [20, 20]});
+      const {start, finish} = data.route.properties;
+      L.circleMarker([start.latitude, start.longitude], {radius: 7, color: '#137333'})
+        .bindPopup(`Start: ${escapeHtml(start.matched_address)}`).addTo(overlay);
+      L.circleMarker([finish.latitude, finish.longitude], {radius: 7, color: '#b3261e'})
+        .bindPopup(`Finish: ${escapeHtml(finish.matched_address)}`).addTo(overlay);
+
+      const s = data.summary;
+      const head = `${s.distance_miles} miles · ${s.duration_hours} h driving`;
+      if (data.fuel_plan.status !== 'available') {
+        summary.textContent = `${head}\nFuel plan unavailable: ${data.fuel_plan.detail}`;
+        return;
+      }
+      const rows = data.fuel_stops.map((stop) => {
+        L.marker([stop.latitude, stop.longitude]).bindPopup(
+          `${stop.stop_number}. ${escapeHtml(stop.name)}<br>${escapeHtml(stop.city)}, ${escapeHtml(stop.state)}<br>` +
+          `$${stop.price_per_gallon_usd}/gal · ${stop.gallons_purchased} gal · ${money(stop.cost_usd)}`
+        ).addTo(overlay);
+        return `<tr><td>${stop.stop_number}</td><td>${escapeHtml(stop.name)}</td>` +
+          `<td>${escapeHtml(stop.city)}, ${escapeHtml(stop.state)}</td><td class="num">${stop.route_mile}</td>` +
+          `<td class="num">${stop.price_per_gallon_usd.toFixed(3)}</td><td class="num">${stop.gallons_purchased}</td>` +
+          `<td class="num">${money(stop.cost_usd)}</td></tr>`;
+      });
+      table.tBodies[0].innerHTML = rows.join('');
+      table.hidden = false;
+      summary.textContent =
+        `${head} · ${s.fuel_stop_count} fuel stop(s) · ${s.total_gallons} gal · ` +
+        `${money(s.total_fuel_cost_usd)} total fuel cost\n` +
+        `${data.meta.external_api_calls} external API call(s) · ${data.meta.elapsed_ms} ms` +
+        (data.meta.cached ? ' (cached)' : '');
+    } catch (error) {
+      summary.textContent = `Could not plan route: ${error.message}`;
+    }
+  }
+
+  document.getElementById('route-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    planRoute();
+  });
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('start') && params.get('finish')) {
+    startInput.value = params.get('start');
+    finishInput.value = params.get('finish');
+    planRoute();
+  }
+</script>
+</body>
+</html>

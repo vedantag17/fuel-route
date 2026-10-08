@@ -1,0 +1,80 @@
+{
+  "info": {
+    "name": "Fuel Route Planner API",
+    "description": "Route planning with cost-optimised fuel stops (500-mile range, 10 mpg).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health and fuel data coverage",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/v1/health/"
+      }
+    },
+    {
+      "name": "Plan route: New York to Los Angeles (cities)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start_address\": \"New York, NY\",\n  \"finish_address\": \"Los Angeles, CA\"\n}"
+        },
+        "url": "{{baseUrl}}/api/v1/route-plan/"
+      }
+    },
+    {
+      "name": "Plan route: street addresses, cheapest plan (no stop penalty)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start_address\": \"233 S Wacker Dr, Chicago, IL 60606\",\n  \"finish_address\": \"1 Dr Carlton B Goodlett Pl, San Francisco, CA 94102\",\n  \"stop_penalty_usd\": 0\n}"
+        },
+        "url": "{{baseUrl}}/api/v1/route-plan/"
+      }
+    },
+    {
+      "name": "Plan route: GET with query parameters",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Accept", "value": "application/json" }],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/route-plan/?start_address=Seattle, WA&finish_address=Miami, FL",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "route-plan", ""],
+          "query": [
+            { "key": "start_address", "value": "Seattle, WA" },
+            { "key": "finish_address", "value": "Miami, FL" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Validation error: unknown city",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start_address\": \"Gotham, NJ\",\n  \"finish_address\": \"Boston, MA\"\n}"
+        },
+        "url": "{{baseUrl}}/api/v1/route-plan/"
+      }
+    }
+  ]
+}
